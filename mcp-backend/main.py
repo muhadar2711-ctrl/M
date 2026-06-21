@@ -47,12 +47,20 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 app.include_router(chat_router, prefix=settings.API_V1_STR)
 
 @app.get("/", tags=["Health"])
+async def root():
+    """Liveness probe. No database or external service dependency."""
+    return {"message": "MCP Server is running"}
+
+
 @app.get("/health", tags=["Health"])
-async def root_health_check():
-    """
-    Root health check endpoint.
-    Retrieves the status of each major service component.
-    """
+async def health_check():
+    """Health check probe. No database or external service dependency."""
+    return {"status": "ok"}
+
+
+@app.get("/health/details", tags=["Health"])
+async def health_details():
+    """Detailed status of each major service component."""
     return {
         "status": "online",
         "services": {
