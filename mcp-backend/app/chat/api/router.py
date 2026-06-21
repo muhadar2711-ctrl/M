@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import uuid
 from typing import Any, Dict, List, Optional
 
@@ -11,6 +10,7 @@ from app.chat.context.builder import build_context
 from app.chat.memory.manager import MemoryManager
 from app.chat.prompt.orchestrator import get_system_prompt
 from app.chat.validator.response_validator import validate_response
+from app.services.ai_provider import generate_chat_response
 
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -19,12 +19,6 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 class ChatMessage(BaseModel):
     role: str
     content: str
-
-    def to_gemini_format(self):
-        return {
-            "role": "user" if self.role == "user" else "model",
-            "parts": [{"text": self.content}],
-        }
 
 
 class ChatRequest(BaseModel):
@@ -85,33 +79,10 @@ async def chat_completions(req: ChatRequest):
     )
     context["system_prompt_compiled"] = system_prompt
 
-    ai_response = None
-    provider_status = "NOT_CONFIGURED"
-
-    api_key = os.getenv("GEMINI_API_KEY")
-    if api_key:
-        try:
-            from google import genai
-
-            client = genai.Client(api_key=api_key)
-            contents = [
-                msg.to_gemini_format()
-                for msg in req.history
-                if msg.content.strip() and msg.content != "Selesai."
-            ]
-            contents.append({"role": "user", "parts": [{"text": req.message}]})
-            generation = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=contents,
-                config={"system_instruction": system_prompt},
-            )
-            ai_response = generation.text or ""
-            provider_status = "ONLINE"
-        except Exception as exc:
-            provider_status = "DEGRADED"
-            ai_response = f"Provider generatif gagal: {exc}. Menggunakan fallback deterministik."
-    else:
-        provider_status = "NOT_CONFIGURED"
+    history = [{"role": msg.role, "content": msg.content} for msg in req.history]
+    ai_result = await generate_chat_response(req.message, history, system_prompt)
+    ai_response = ai_result.text
+    provider_status = ai_result.status
 
     if not ai_response or not ai_response.strip():
         ai_response = _fallback_response(req, context)

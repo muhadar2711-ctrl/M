@@ -17,6 +17,16 @@ class Settings(BaseSettings):
     # Twitter
     TWITTER_BEARER_TOKEN: Optional[str] = None
 
+    # AI providers (multi-provider chat). At least one should be set.
+    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    OPENROUTER_API_KEY: Optional[str] = None
+    OPENROUTER_MODEL: str = "openai/gpt-4o-mini"
+    GROQ_API_KEY: Optional[str] = None
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    XAI_API_KEY: Optional[str] = None
+    XAI_MODEL: str = "grok-2-latest"
+
     # Database
     POSTGRES_URL: Optional[str] = None
     
