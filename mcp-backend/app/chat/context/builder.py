@@ -55,7 +55,7 @@ def _status_snapshot() -> Dict[str, Any]:
 async def build_context(user_message: str, history: list) -> Dict[str, Any]:
     symbol = _detect_symbol(user_message)
     market_data = await _market_snapshot(symbol)
-    knowledge = retrieve_knowledge(user_message)
+    knowledge = [] # retrieve_knowledge(user_message)
     status = _status_snapshot()
 
     return {
