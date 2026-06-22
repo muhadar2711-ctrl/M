@@ -43,6 +43,7 @@ def _summarize_context(context: Dict[str, Any]) -> str:
 
 
 def _fallback_response(req: ChatRequest, context: Dict[str, Any]) -> str:
+    """Generate a truthful fallback when no AI provider returns content."""
     knowledge = context.get("retrieved_knowledge", [])
     market = context.get("live_market_data", {})
     parts = [
@@ -64,6 +65,24 @@ def _fallback_response(req: ChatRequest, context: Dict[str, Any]) -> str:
     return "\n".join(parts)
 
 
+def _build_intermediate_steps(
+    context: Dict[str, Any], memory: MemoryManager
+) -> List[Dict[str, str]]:
+    """Build honest intermediate steps reflecting actual backend activity."""
+    steps = [
+        {"agent": "ContextBuilder", "content": "Context assembled from live status and RAG"},
+    ]
+    # Report memory honestly
+    memory_note = (
+        "Conversation stored in-memory (SQLite not connected)"
+        if not getattr(memory, "_persist", False)
+        else "Conversation persisted to SQLite"
+    )
+    steps.append({"agent": "MemoryManager", "content": memory_note})
+    steps.append({"agent": "Validator", "content": "Response validated for unsafe claims"})
+    return steps
+
+
 @router.post("/completions")
 async def chat_completions(req: ChatRequest):
     memory = MemoryManager()
@@ -80,7 +99,12 @@ async def chat_completions(req: ChatRequest):
     context["system_prompt_compiled"] = system_prompt
 
     history = [{"role": msg.role, "content": msg.content} for msg in req.history]
-    ai_result = await generate_chat_response(req.message, history, system_prompt)
+    ai_result = await generate_chat_response(
+        message=req.message,
+        history=history,
+        system_prompt=system_prompt,
+        images_base64=req.images_base64 if req.images_base64 else None,
+    )
     ai_response = ai_result.text
     provider_status = ai_result.status
 
@@ -97,9 +121,5 @@ async def chat_completions(req: ChatRequest):
         "response": safe_answer,
         "provider_status": provider_status,
         "context_summary": _summarize_context(context),
-        "intermediate_steps": [
-            {"agent": "ContextBuilder", "content": "Context assembled from live status and RAG"},
-            {"agent": "MemoryManager", "content": "Conversation persisted to SQLite"},
-            {"agent": "Validator", "content": "Response validated for unsafe claims"},
-        ],
+        "intermediate_steps": _build_intermediate_steps(context, memory),
     }

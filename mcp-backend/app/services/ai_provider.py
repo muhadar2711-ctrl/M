@@ -7,6 +7,7 @@ falling back to the next provider on failure.
 Payload rules enforced here:
 - Gemini: one ``Content`` object per turn, each with a single ``parts`` entry
   containing one ``text`` field. Never multiple ``text`` parts in one turn.
+  Images are passed as additional parts with inline_data (base64).
 - OpenAI-compatible: ``messages`` is a flat list of objects with a string
   ``content`` (not a list), one object per turn.
 """
@@ -50,12 +51,48 @@ def build_openai_messages(
     return messages
 
 
-def build_gemini_contents(turns: List[Dict[str, str]]) -> List[Dict[str, Any]]:
-    """Gemini payload: one Content per turn, single text part each."""
+def build_gemini_contents(
+    turns: List[Dict[str, str]],
+    images_base64: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """Gemini payload: one Content per turn, single text part each.
+
+    If ``images_base64`` is provided, the **last user turn** gets additional
+    ``inline_data`` parts (one per image) so Gemini can process them.
+    """
     contents: List[Dict[str, Any]] = []
-    for turn in turns:
+    for i, turn in enumerate(turns):
         role = "user" if turn["role"] == "user" else "model"
-        contents.append({"role": role, "parts": [{"text": turn["content"]}]})
+        parts: List[Dict[str, Any]] = [{"text": turn["content"]}]
+        # Attach images to the last user turn only
+        if (
+            images_base64
+            and turn["role"] == "user"
+            and i == len(turns) - 1
+        ):
+            for b64_str in images_base64:
+                # Strip data URI prefix if present
+                clean = b64_str.strip()
+                if clean.startswith("data:image"):
+                    # e.g. "data:image/png;base64,iVBOR..."
+                    import re as _re
+                    match = _re.match(r"data:image/(?P<fmt>\w+);base64,(?P<data>.+)", clean)
+                    if match:
+                        parts.append({
+                            "inline_data": {
+                                "mime_type": f"image/{match.group('fmt')}",
+                                "data": match.group("data"),
+                            }
+                        })
+                        continue
+                # Already raw base64 — assume PNG
+                parts.append({
+                    "inline_data": {
+                        "mime_type": "image/png",
+                        "data": clean,
+                    }
+                })
+        contents.append({"role": role, "parts": parts})
     return contents
 
 
@@ -140,14 +177,18 @@ async def generate_chat_response(
     message: str,
     history: List[Dict[str, Any]],
     system_prompt: Optional[str] = None,
+    images_base64: Optional[List[str]] = None,
 ) -> AIResult:
-    """Route the chat request across configured providers, returning the first success."""
+    """Route the chat request across configured providers, returning the first success.
+
+    ``images_base64`` is only passed to Gemini (other providers ignore images).
+    """
     turns = normalize_turns(history, message)
     errors: Dict[str, str] = {}
 
     if os.getenv("GEMINI_API_KEY"):
         try:
-            contents = build_gemini_contents(turns)
+            contents = build_gemini_contents(turns, images_base64=images_base64)
             model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
             text = await asyncio.to_thread(
                 _call_gemini_sync, contents, system_prompt, model
