@@ -12,12 +12,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Install python dependencies
-COPY requirements.txt .
+COPY mcp-backend/requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy project
-COPY . .
+COPY mcp-backend/ .
 
 # Expose port (Railway provides PORT env variable at runtime)
 EXPOSE 8000
